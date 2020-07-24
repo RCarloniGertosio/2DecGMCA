@@ -109,7 +109,7 @@ def generate_problem(n=4, m=8, size=256, cutmin=None, cutmax=None, nscales=3, sp
     size: int
         size of the sources
     cutmin: int
-        source generation: frequency at which the band-limiting filter starts to cut (default: int(size/2))
+        source generation: frequency at which the band-limiting filter starts to cut (default: int(size/6))
     cutmax: int
         source generation: frequency above which the band-limiting filter is 0 (default: max(minResol, size/2))
     nscales: int

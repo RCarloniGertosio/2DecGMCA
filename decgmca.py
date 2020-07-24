@@ -87,7 +87,7 @@ class DecGMCA:
 
         Returns
         -------
-        None
+        DecGMCA
         """
 
         # Initialize given attributes
