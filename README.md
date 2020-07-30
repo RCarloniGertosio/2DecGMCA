@@ -24,10 +24,10 @@ where:
 - ![equation](https://latex.codecogs.com/gif.latex?%5Cmathbf%7BN%7D%20%5Cin%20%5Cmathbb%7BR%7D%5E%7BN_c%20%5Ctimes%20N_p%7D) is the noise.
 
 In the following, the measurement operator is assumed channel-dependant, linear and isotropic. Thus, for channel ![equation](https://latex.codecogs.com/gif.latex?%5Cnu%20%5Cin%20%5B1%2C%20N_c%5D):
-> ![equation](https://latex.codecogs.com/gif.latex?%5Cmathbf%7BX%7D_%7B%5Cnu%7D%20%3D%20%28%5Cmathbf%7BA%7D_%7B%5Cnu%7D%20%5Cmathbf%7BS%7D%29*%5Cmathbf%7BH%7D_%7B%5Cnu%7D%20&plus;%20%5Cmathbf%7BN%7D_%7B%5Cnu%7D)
+> ![equation](https://latex.codecogs.com/gif.latex?%5Cmathbf%7BX%7D_%7B%5Cnu%7D%20%3D%20%28%5Cmathbf%7BA%7D_%7B%5Cnu%7D%20%5Cmathbf%7BS%7D%29*%5Cmathbf%7BH%7D_%7B%5Cnu%7D%20&plus;%20%5Cmathbf%7BN%7D_%7B%5Cnu%7D),
 
 where ![equation](https://latex.codecogs.com/gif.latex?*) denotes the convolution product. The equation can be simplified in Fourier domain:
-> ![equation](https://latex.codecogs.com/gif.latex?%5Cmathbf%7B%5Chat%7BX%7D%7D%5Ep_%5Cnu%20%3D%20%5Cmathbf%7B%5Chat%7BH%7D%7D%5Ep_%5Cnu%20%5Cmathbf%7BA%7D_%5Cnu%20%5Cmathbf%7B%5Chat%7BS%7D%7D%5Ep%20&plus;%20%5Cmathbf%7B%5Chat%7BN%7D%7D%5Ep_%5Cnu).
+> ![equation](https://latex.codecogs.com/gif.latex?%5Cmathbf%7B%5Chat%7BX%7D%7D%5Ep_%5Cnu%20%3D%20%5Cmathbf%7B%5Chat%7BH%7D%7D%5Ep_%5Cnu%20%5Cmathbf%7BA%7D_%5Cnu%20%5Cmathbf%7B%5Chat%7BS%7D%7D%5Ep%20&plus;%20%5Cmathbf%7B%5Chat%7BN%7D%7D%5Ep_%5Cnu)
 
 The sources are assumed to be sparse in the starlet representation ![equation](https://latex.codecogs.com/gif.latex?%5Cmathbf%7B%5CPhi%7D). DecGMCA aims at minimizing the following objective function with respect to A and S:
 > ![equation](https://latex.codecogs.com/gif.latex?%5Csum%5Climits_%7Bp%2C%5Cnu%7D%20%5Cleft%20%5C%7C%5Cmathbf%7B%5Chat%7BX%7D%7D%5Ep_%5Cnu%20-%20%5Cmathbf%7B%5Chat%7BH%7D%7D%5Ep_%5Cnu%20%5Cmathbf%7BA%7D_%5Cnu%20%5Cmathbf%7B%5Chat%7BS%7D%7D%5Ep%5Cright%20%5C%7C%5E2_2%20%26plus%3B%20%5Cleft%20%5C%7C%20%5Cmathbf%7B%5CLambda%7D%20%5Codot%20%5Cleft%28%20%5Cmathbf%7BS%7D%20%5Cmathbf%7B%5CPhi%7D%5ET%5Cright%29%5Cright%20%5C%7C_%7B%5Cell_1%7D%20%26plus%3B%20%5Cchi_%5Cmathcal%7BO%7D%5Cleft%28%5Cmathbf%7BA%7D%5Cright%29),
@@ -41,14 +41,14 @@ The algorithm is built upon a sparsity-enforcing projected alternate least-squar
 
 In contrast to standard BSS problems, the least-square update of the sources is not necessarily stable with respect to noise. Thus, an extra Tikhonov regularization is added.
 
-The separation is comprised of two stages. The first stage estimates a first guess of the mixing matrix and the sources (**(warm-up)**); it is required to provide robustness with respect to the initial point. The second stage refines the separation by employing a more precise Tikhonov regularization strategy (**refinement**). Lastly, the sources are improved during a finale step with the output mixing matrix.
+The separation is comprised of two stages. The first stage estimates a first guess of the mixing matrix and the sources (**warm-up**); it is required to provide robustness with respect to the initial point. The second stage refines the separation by employing a more precise Tikhonov regularization strategy (**refinement**). Lastly, the sources are improved during a finale step with the output mixing matrix.
 
 <a name="start"></a>
 ## Getting Started
 
 ### Requirements
 
-SDecGMCA has been developed with Python 3.7.
+DecGMCA has been developed with Python 3.7.
 
 ### Prerequisites
 
