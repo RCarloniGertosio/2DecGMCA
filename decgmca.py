@@ -1,4 +1,3 @@
-import copy as cp
 import numpy as np
 import ffttools as fftt
 import utils
@@ -92,16 +91,16 @@ class DecGMCA:
 
         # Initialize given attributes
         self.X = X
-        self.Hfft = cp.copy(Hfft)
+        self.Hfft = Hfft.copy()
         if len(np.shape(self.Hfft)) == 1:  # if Hl is a 1D array, expand it to a 2D array
             self.Hfft = np.expand_dims(self.Hfft, axis=0)
             self.Hfft = np.tile(self.Hfft, [self.m, 1])
         if M is None:
             self.M = np.ones(np.shape(X)[-1])
         else:
-            self.M = cp.copy(M)
+            self.M = M.copy()
         self.n = n
-        self.AInit = cp.copy(AInit)
+        self.AInit = AInit.copy()
         self.nnegA = nnegA
         self.nnegS = nnegS
         if nneg:
@@ -125,11 +124,11 @@ class DecGMCA:
         if eps is None:
             self.eps = [1e-2, 1e-5, 1e-5]
         else:
-            self.eps = cp.copy(eps)
+            self.eps = eps.copy()
         self.verb = verb
-        self.S0 = cp.copy(S0)
-        self.A0 = cp.copy(A0)
-        self.iSNR0 = cp.copy(iSNR0)
+        self.S0 = S0.copy()
+        self.A0 = A0.copy()
+        self.iSNR0 = iSNR0.copy()
 
         # Initialize deduced attributes
         self.m = np.shape(self.X)[0]                        # number of observations
@@ -240,7 +239,7 @@ class DecGMCA:
         X = fftt.convolve(self.X, self.Hfft[0, :] / (self.Hfft + 1e-10))
         # Initialize A
         if self.AInit is not None:
-            self.A = cp.copy(self.AInit)
+            self.A = self.AInit.copy()
         else:  # PCA with the deteriorated data
             R = X@X.T
             D, V = np.linalg.eig(R)
@@ -304,8 +303,8 @@ class DecGMCA:
             delta_S = np.sqrt(np.sum(np.abs(self.Sfft - Sfft_old)**2) / np.sum(np.abs(self.Sfft))**2)
             delta_A = np.max(abs(1-abs(np.sum(self.A*A_old, axis=0))))
             cond_A = np.linalg.cond(self.A)
-            Sfft_old = cp.copy(self.Sfft)
-            A_old = cp.copy(self.A)
+            Sfft_old = self.Sfft.copy()
+            A_old = self.A.copy()
 
             if self.A0 is not None and self.S0 is not None and self.verb >= 2:
                 Acp, Scp, _ = utils.corr_perm(self.A0, self.S0, self.A, self.S, optInd=True)
@@ -746,7 +745,7 @@ class DecGMCA:
                 return 1
 
             delta_S = np.sqrt(np.sum(np.abs(self.Sfft - Sfft_old) ** 2) / np.sum(np.abs(self.Sfft)) ** 2)
-            Sfft_old = cp.copy(self.Sfft)
+            Sfft_old = self.Sfft.copy()
 
             if self.A0 is not None and self.S0 is not None and self.verb >= 2:
                 Acp, Scp, _ = utils.corr_perm(self.A0, self.S0, self.A, self.S, optInd=True)

@@ -1,5 +1,4 @@
 import numpy as np
-import copy as cp
 
 
 # Harmonic analysis
@@ -227,7 +226,7 @@ def wt_trans(inputs, nscales=3, fft_in=False, fft_out=False):
         Xfft = fft(X)
 
     if not fft_out:
-        l_scale = cp.copy(X)
+        l_scale = X.copy()
         if dim_inputs == 1:
             size2 = len(X)
             wts = np.zeros((size2, nscales + 1))
@@ -235,7 +234,7 @@ def wt_trans(inputs, nscales=3, fft_in=False, fft_out=False):
             size2 = np.shape(X)[1]
             wts = np.zeros((np.shape(X)[0], size2, nscales + 1))
     else:
-        l_scale = cp.copy(Xfft)
+        l_scale = Xfft.copy()
         if dim_inputs == 1:
             size2 = np.size(Xfft)
             wts = np.zeros((size2, nscales + 1), dtype='complex')

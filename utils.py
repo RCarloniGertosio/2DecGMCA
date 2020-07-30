@@ -1,6 +1,4 @@
 import numpy as np
-import copy as cp
-from time import time
 import matplotlib.pyplot as plt
 import ffttools as fftt
 
@@ -277,8 +275,12 @@ def generate_mixmat(n=2, m=4, condn=2., dcondn=1e-2, max0s=None, forceMax0s=Fals
     A = A / np.maximum(1e-24, np.linalg.norm(A, axis=0))
     if max0s is None:
         max0s = n * m
-    start_time = time()
+    it = 0
     while True:
+        it += 1
+        if not forceMax0s and it >= 5e4:  # relax condition on max number of zeros
+            it = 0
+            max0s += 1
         try:
             U, d, V = np.linalg.svd(A)
         except np.linalg.LinAlgError:  # divergence, new A drawn
@@ -301,9 +303,6 @@ def generate_mixmat(n=2, m=4, condn=2., dcondn=1e-2, max0s=None, forceMax0s=Fals
                     return A
                 A = np.random.rand(m, n)
                 A = A / np.maximum(1e-24, np.linalg.norm(A, axis=0))
-                if not forceMax0s and time() - start_time > 30:  # relax condition on max number of zeros
-                    start_time = time()
-                    max0s += 1
 
 
 def generate_filt(m=8, size=256, minResol=None, maxResol=None, infResol=False):
@@ -480,8 +479,8 @@ def asses_solution(A0, S0, A, S, corrPerm=False, perScale=False, nscales=3, view
     """
 
     if not corrPerm:
-        A = cp.copy(A)
-        S = cp.copy(S)
+        A = A.copy()
+        S = S.copy()
 
     if not perScale:
         CA, NMSE = evaluate(A0, S0, A, S, corrPerm=True, perScale=perScale, nscales=nscales)
@@ -532,8 +531,8 @@ def evaluate(A0, S0, A, S, corrPerm=False, perScale=False, nscales=3, S0wt=None)
     """
 
     if not corrPerm:
-        A = cp.copy(A)
-        S = cp.copy(S)
+        A = A.copy()
+        S = S.copy()
 
     n = np.shape(A0)[1]
 
@@ -581,11 +580,11 @@ def corr_perm(A0, S0, A, S, inplace=False, optInd=False):
         ind (if optInd)
     """
 
-    A0 = cp.copy(A0)
-    S0 = cp.copy(S0)
+    A0 = A0.copy()
+    S0 = S0.copy()
     if not inplace:
-        A = cp.copy(A)
-        S = cp.copy(S)
+        A = A.copy()
+        S = S.copy()
 
     n = np.shape(A0)[1]
 
