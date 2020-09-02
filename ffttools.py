@@ -142,7 +142,6 @@ def compute_h(size, fc):
     tab1 = spline2(size, 2 * fc, 1)
     tab2 = spline2(size, fc, 1)
     h = tab1 / (tab2 + 1e-6)
-    h[np.int(size / (2 * fc)):size] = 0
     return h
 
 
@@ -166,7 +165,6 @@ def compute_g(size, fc):
     tab1 = spline2(size, 2 * fc, 1)
     tab2 = spline2(size, fc, 1)
     g = (tab2 - tab1) / (tab2 + 1e-6)
-    g[np.int(size / (2 * fc)):size] = 1
     return g
 
 
