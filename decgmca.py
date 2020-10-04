@@ -1,6 +1,7 @@
 import numpy as np
 import ffttools as fftt
 import utils
+import copy as cp
 
 
 class DecGMCA:
@@ -18,9 +19,9 @@ class DecGMCA:
     A = decgmca.A.copy()
     """
 
-    def __init__(self, X, Hfft, M=None, n=4, AInit=None, nnegA=False, nnegS=False, nneg=None, wuStrat=3, minWuIt=100,
-                 c_wu=4e-1, c_ref=2e-1, cwuDec=None, nStd=0, useMad=False, nscales=3, k=3, K_max=0.5, L1=True,
-                 doRw=True, eps=None, verb=0, S0=None, A0=None, iSNR0=None):
+    def __init__(self, X, Hfft, M=None, n=4, AInit=None, nnegA=False, nnegS=False, nneg=None, keepWuRegStr=False,
+                 cstWuRegStr=False, minWuIt=100, c_wu=4e-1, c_ref=2e-1, cwuDec=None, nStd=0, useMad=False, nscales=3,
+                 k=3, K_max=0.5, L1=True, doRw=True, eps=None, verb=0, S0=None, A0=None, iSNR0=None):
         """Initialize object.
 
         Parameters
@@ -42,19 +43,16 @@ class DecGMCA:
             non-negativity constraint on S
         nneg : bool
             non-negativity constraint on A and S. If not None, overrides nnegA and nnegS
-        wuStrat : int
-            warm-up Tikhonov regularization strategy:
-                * 1 : c
-                * 2 : c*sigma_max(A.T@diag(Hl**2)@A)
-                * 3 : max(0, c-sigma_min(A.T@diag(Hl**2)@A)/(sigma_min(A.T@A)+1e-2))
-                * 4 : c/SNR, with SNR = spectraS/nStdFFT where spectraS calculated from a previous estimation of the
-                sources)
+        keepWuRegStr : bool
+            keep warm-up regularization strategy during refinement (else: use spectra-based coefficients)
+        cstWuRegStr : bool
+            use constant regularization coefficients during warm-up (instead of mixing-matrix-based coefficients)
         minWuIt : int
             minimum number of iterations at warm-up
         c_wu : float or np.ndarray
             float or (2,) float array, Tikhonov regularization hyperparameter at warm-up
         c_ref : float
-            Tikhonov regularization hyperparameter at refinement (with regularization strategy #4)
+            Tikhonov regularization hyperparameter at refinement (with spectra-based regularization coefficients)
         cwuDec : int
             number of iterations for the decrease of c_wu (if c_wu is an array). If None: minWuIt/2
         nStd : float
@@ -81,8 +79,8 @@ class DecGMCA:
         A0 : np.ndarray
             (m,n) float array, ground truth mixing matrix (for testing purposes)
         iSNR0 : np.ndarray
-            (n,p) float array, regularization parameters for strategy #4 (for testing purposes). Default: deduced from
-            S0 and nStd
+            (n,p) float array, regularization parameters for spectra-based regularization coefficients (for testing
+            purposes). Default: deduced from S0 and nStd
 
         Returns
         -------
@@ -100,13 +98,14 @@ class DecGMCA:
         else:
             self.M = M.copy()
         self.n = n
-        self.AInit = AInit.copy()
+        self.AInit = cp.copy(AInit)
         self.nnegA = nnegA
         self.nnegS = nnegS
         if nneg:
             self.nnegA = True
             self.nnegS = True
-        self.wuStrat = wuStrat
+        self.keepWuRegStr = keepWuRegStr
+        self.cstWuRegStr = cstWuRegStr
         self.minWuIt = minWuIt
         self.c_wu = c_wu
         self.c_ref = c_ref
@@ -126,9 +125,9 @@ class DecGMCA:
         else:
             self.eps = eps.copy()
         self.verb = verb
-        self.S0 = S0.copy()
-        self.A0 = A0.copy()
-        self.iSNR0 = iSNR0.copy()
+        self.S0 = cp.copy(S0)
+        self.A0 = cp.copy(A0)
+        self.iSNR0 = cp.copy(iSNR0)
 
         # Initialize deduced attributes
         self.m = np.shape(self.X)[0]                        # number of observations
@@ -149,7 +148,6 @@ class DecGMCA:
         self.S = np.zeros((self.n, self.p))                         # current estimation of the sources
         self.Sfft = np.zeros((self.n, self.p), dtype=complex)       # current estimation of the sources in Fourier dom.
         self.Sfft_det = np.zeros((self.n, self.p), dtype=complex)   # current est. of the detail scales of S
-        # TODO memory optimization: if self.nnegS, self.Sfft==self.Sfft_det during the separation
         self.Swtrw = np.zeros((self.n, self.p, self.nscales))       # weights for the l1 reweighing
         self.A = np.zeros((self.m, self.n))                         # current estimation of the mixing matrix
         self.invOpSp = np.zeros((self.p, self.n))                   # spectra of the inverse operators
@@ -171,26 +169,22 @@ class DecGMCA:
                 res += 'A\n'
             else:
                 res += 'S\n'
-        if self.eps[0] != 0:
-            res += '  - Warm-up regularization strategy: %i\n' % self.wuStrat
-            res += '  - Minimum number of iterations at warm-up: %i\n' % self.minWuIt
-            if np.isscalar(self.c_wu):
-                res += '  - Tikhonov regularization hyperparameter at warm-up: %.2f\n' % self.c_wu
-            else:
-                res += '  - Tikhonov regularization hyperparameter at warm-up decreases between %.2f and %.2f in %i ' \
-                       'iterations\n' % (np.max(self.c_wu), np.min(self.c_wu), self.cwuDec)
+        if self.cstWuRegStr:
+            res += '  - Constant regularization coefficients during warm-up\n'
+        res += '  - Minimum number of iterations at warm-up: %i\n' % self.minWuIt
+        if np.isscalar(self.c_wu):
+            res += '  - Tikhonov regularization hyperparameter at warm-up: %.2f\n' % self.c_wu
+        else:
+            res += '  - Tikhonov regularization hyperparameter at warm-up decreases between %.2f and %.2f in %i ' \
+                   'iterations\n' % (np.max(self.c_wu), np.min(self.c_wu), self.cwuDec)
+        if not self.keepWuRegStr:
             res += '  - Tikhonov regularization hyperparameter at refinement: %.2f\n' % self.c_ref
-        else:  # TODO for the comparison with ODecGMCA, to delete
-            res += '  - Regularization strategy: %i (no refinement with SNR)\n' % self.wuStrat
-            if np.isscalar(self.c_wu):
-                res += '  - Tikhonov regularization hyperparameter : %.2f\n' % self.c_wu
-            else:
-                res += '  - Tikhonov regularization hyperparameter decreases between %.2f and %.2f in %i iterations\n' \
-                       % (np.min(self.c_wu), np.max(self.c_wu), self.cwuDec)
+        else:
+            res += '  - Keep warm-up regularization strategy during refinement\n'
         if self.useMad:
             res += '  - Noise std estimated with MAD\n'
         else:
-            res += '  - Noise std estimated with a noise retroprojected in the source domain\n'
+            res += '  - Noise std estimated analytically with the input noise std of the observations\n'
         res += '  - nscales = %i  |  k = %.2f  |  K_max = %i%%\n' % (self.nscales, self.k, self.K_max*100)
         if not self.L1:
             res += '  - L0 penalization\n'
@@ -202,10 +196,6 @@ class DecGMCA:
 
     def run(self):
         """Run DecGMCA with the data and the parameters stored in the attributes.
-
-        Parameters
-        ----------
-        no value
 
         Returns
         -------
@@ -264,10 +254,6 @@ class DecGMCA:
 
         This function handles the alternate updates of S and A, as well as the two stages (warm-up and refinement).
 
-        Parameters
-        ----------
-        no value
-
         Returns
         -------
         int
@@ -276,20 +262,20 @@ class DecGMCA:
 
         stage = "wu"
 
-        Sfft_old = np.zeros((self.n, self.p), dtype=complex)
+        S_old = np.zeros((self.n, self.p))
         A_old = np.zeros((self.m, self.n))
         it = 0
 
         while True:
             it += 1
             # Get parameters of DecGMCA for the current iteration
-            strat, c, K, remCs, doRw, nnegS = self.get_parameters(stage, it)
+            strat, c, K, doRw, nnegS = self.get_parameters(stage, it)
 
             if self.verb >= 2:
                 print("Iteration #%i" % it)
 
             # Update S
-            update_s = self.update_s(strat, c, K, remCs, doRw, nnegS)
+            update_s = self.update_s(strat, c, K, doRw=doRw, nnegS=nnegS)
             if update_s:  # error caught
                 return 1
 
@@ -300,10 +286,10 @@ class DecGMCA:
 
             # Post processing
 
-            delta_S = np.sqrt(np.sum(np.abs(self.Sfft - Sfft_old)**2) / np.sum(np.abs(self.Sfft))**2)
+            delta_S = np.linalg.norm(S_old-self.S)/np.linalg.norm(self.S)
             delta_A = np.max(abs(1-abs(np.sum(self.A*A_old, axis=0))))
             cond_A = np.linalg.cond(self.A)
-            Sfft_old = self.Sfft.copy()
+            S_old = self.S.copy()
             A_old = self.A.copy()
 
             if self.A0 is not None and self.S0 is not None and self.verb >= 2:
@@ -318,31 +304,22 @@ class DecGMCA:
 
             # Stage update
 
-            if stage == 'wu' and it >= self.minWuIt and delta_S <= self.eps[0]:
+            if stage == 'wu' and it >= self.minWuIt and (delta_S <= self.eps[0] or it >= self.minWuIt + 100):
                 if self.verb >= 2:
                     print("> End of the warm-up (iteration %i)" % it)
                 self.lastWuIt = it
                 stage = 'ref'
 
-            if stage == 'ref' and (delta_S <= self.eps[1] or it >= self.lastWuIt + 200) and (it >= self.lastWuIt + 25):
+            if stage == 'ref' and (delta_S <= self.eps[1] or it >= self.lastWuIt + 50) and (it >= self.lastWuIt + 25):
                 if self.verb >= 2:
                     print("> End of the refinement (iteration %i)" % it)
                 self.lastRefIt = it
                 return 0
-                
-            if self.eps[0] != 0 and stage == 'wu' and \
-                    (it >= self.minWuIt + 100 or (it >= self.minWuIt+10 and cond_A >= 100)):
-                if self.verb >= 2:
-                    print("> Algorithm did not converge, abort")
-                return 1
 
-            # TODO For the comparison with old DecGMCA, to delete:
-            if self.eps[0] == 0 and self.lastWuIt is None and delta_S <= 1e-2 and it >= self.minWuIt:
-                self.lastWuIt = it
-            if self.eps[0] == 0 and self.lastWuIt is not None and (delta_S <= 1e-5 or it >= self.lastWuIt+100):
-                if self.verb >= 2:
-                    print("> End (iteration %i)" % it)
-                return 0
+            # if stage == 'wu' and (it >= self.minWuIt + 100 or (it >= self.minWuIt+10 and cond_A >= 100)):
+            #     if self.verb >= 2:
+            #         print("> Algorithm did not converge, abort")
+            #     return 1
 
     def get_parameters(self, stage, it):
         """Get the parameters of DecGMCA.
@@ -358,17 +335,19 @@ class DecGMCA:
 
         Returns
         -------
-        (int, float, float, bool, bool, bool)
+        (int, float, float, bool, bool)
             regularization strategy,
             regularization hyperparameter,
             L0 support of the sources,
-            remove coarse scales,
             do L1 reweighting,
             apply non-negativity constraint on the sources
         """
 
+        if self.cstWuRegStr:
+            strat = 0  # constant regularization coefficients
+        else:
+            strat = 1  # mixing-matrix-based regularization coefficients
         if stage == 'wu':
-            strat = self.wuStrat
             if np.isscalar(self.c_wu):
                 c = self.c_wu
             else:
@@ -378,20 +357,19 @@ class DecGMCA:
             K = np.minimum(self.K_max / self.minWuIt * it, self.K_max)
             doRw = False    # no l1 reweighing during warm-up
             nnegS = False   # no non-negativity constraint on S during warm-up
-            if self.lastWuIt is not None and it >= self.lastWuIt:  # TODO: to delete
-                nnegS = self.nnegS
-                doRw = self.doRw
         else:
-            strat = 4
-            c = self.c_ref
+            if self.keepWuRegStr:
+                c = np.min(self.c_wu)
+            else:
+                strat = 2  # spectra-based regularization coefficients
+                c = self.c_ref
             K = self.K_max
             doRw = self.doRw
             nnegS = self.nnegS
-        remCs = not self.nnegS  # coarse scales of the data removed if no non-negativity constraint on the sources
-        return strat, c, K, remCs, doRw, nnegS
+        return strat, c, K, doRw, nnegS
 
-    def update_s(self, strat, c, K, remCs=True, doRw=None, nnegS=None, calcSfft_det=True, Sfft=None, Sfft_det=None,
-                 S=None, A=None, iSNR=None, stds=None, Swtrw=None, oracle=False):
+    def update_s(self, strat, c, K, doRw=None, nnegS=None, projS=True, Sfft=None, Sfft_det=None, S=None, A=None,
+                 iSNR=None, stds=None, Swtrw=None, oracle=False):
         """Perform the update of the sources.
 
         Perform the update of the sources, comprising a Tikhonov-regularized least-square, a thresholding in the wavelet
@@ -400,18 +378,16 @@ class DecGMCA:
         Parameters
         ----------
         strat: int
-            regularization strategy
+            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectra-based)
         c: float
             regularization hyperparameter
         K: float
             L0 support of the sources
-        remCs: bool
-            remove coarse scale
         doRw: bool
             do reweighting (default: self.doRw)
         nnegS: bool
             apply non-negativity constraint on the sources (default: self.nnegS)
-        calcSfft_det: bool
+        projS: bool
             project the sources in Fourier domain after the update (result saved in Sfft_det)
         Sfft: np.ndarray
             (n,p) complex array, estimated sources in Fourier domain (in-place update, default: self.Sfft)
@@ -423,7 +399,7 @@ class DecGMCA:
         A: np.ndarray
             (m,n) float array, mixing matrix (default: self.A)
         iSNR: np.ndarray
-            (n,p) float array, regularization parameters for strategy #4 (default: calculated from Sfft)
+            (n,p) float array, regularization parameters for strategy #2 (default: calculated from Sfft)
         stds: np.ndarray
             (n,nscales) float array, std of the noise in the source space, per detail scale (default: mad or analytical
             calculation)
@@ -440,38 +416,33 @@ class DecGMCA:
 
         if nnegS is None:
             nnegS = self.nnegS
-        if remCs and nnegS:
-            remCs = False
-            print('Warning! remCs forced False (the CS cannot be removed to apply the non-negativity const. on S')
         if doRw is None:
             doRw = self.doRw
 
-        ls_s = self.ls_s(strat, c, remCs, Sfft=Sfft, A=A, iSNR=iSNR, oracle=oracle)
+        ls_s = self.ls_s(strat, c, Sfft=Sfft, A=A, iSNR=iSNR, oracle=oracle)
         if ls_s:  # error caught
             return 1
 
-        self.thresholding(K, remCs, doRw, nnegS, calcSfft_det, Sfft=Sfft, Sfft_det=Sfft_det, S=S, stds=stds,
-                          Swtrw=Swtrw, oracle=oracle)
+        self.constraints_s(K, doRw, nnegS, projS, Sfft=Sfft, Sfft_det=Sfft_det, S=S, stds=stds, Swtrw=Swtrw,
+                           oracle=oracle)
         
         return 0
 
-    def ls_s(self, strat, c, remCs, Sfft=None, A=None, iSNR=None, oracle=False):
+    def ls_s(self, strat, c, Sfft=None, A=None, iSNR=None, oracle=False):
         """Perform the Tikhonov-regularized least-square update of the sources.
 
         Parameters
         ----------
         strat: int
-            regularization strategy
+            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectra-based)
         c: float
             regularization hyperparameter
-        remCs: bool
-            remove coarse scale
         Sfft: np.ndarray
             (n,p) complex array, estimated sources in Fourier domain (in-place update, default: self.Sfft)
         A: np.ndarray
             (m,n) float array, mixing matrix (default: self.A)
         iSNR: np.ndarray
-            (n,p) float array, regularization parameters for strategy #4 (default: calculated from Sfft)
+            (n,p) float array, regularization parameters for strategy #2 (default: calculated from Sfft)
         oracle: bool
             perform an oracle update (using the ground-truth A and S)
 
@@ -488,36 +459,34 @@ class DecGMCA:
                 A = self.A
             else:
                 A = self.A0
-        if remCs:
-            Xfft = self.Xfft_det
-        else:
-            Xfft = self.Xfft
-        if strat == 4 and iSNR is None:
+        if strat == 2 and iSNR is None:
             if not oracle:
                 iSNR = self.nStdFFT ** 2 / (np.abs(Sfft)+1e-10)**2 * self.supp / self.p
             else:
                 iSNR = self.iSNR0
-            if remCs:
-                iSNR *= (1-self.wt_filters[:, -1])**2
 
         if self.verb >= 3:
-            print("Regularization strategy: %i - hyperparameter: c = %.5f  " % (strat, c))
+            if strat == 0:
+                regstrat = 'constant'
+            elif strat == 2:
+                regstrat = 'spectra-based'
+            else:
+                regstrat = 'mixing-matrix-based'
+            print("Regularization strategy: " + regstrat + " - hyperparameter: c = %e  " % c)
 
         normAA = np.linalg.norm(A.T@A, ord=-2)
 
         Ra = np.einsum('lj,li,lk', A, self.Hfft**2, A)
-        if strat == 1:
+        if strat == 0:  # constant regularization coefficients
             Ra += c*np.eye(self.n)[np.newaxis, :, :]
-        elif strat == 2:
-            Ra += c*np.linalg.norm(Ra, ord=2, axis=(1, 2))[:, np.newaxis, np.newaxis]*np.eye(self.n)[np.newaxis, :, :]
-        elif strat == 3:
-            Ra += np.maximum(0, c-np.linalg.norm(Ra, ord=-2, axis=(1, 2))/(normAA+1e-2))[:, np.newaxis, np.newaxis] \
-                  * np.eye(self.n)[np.newaxis, :, :]
-        elif strat == 4:
+        elif strat == 2:  # spectra-based regularization coefficients
             eps = np.zeros((self.p, self.n, self.n))
             diag = np.arange(self.n)
-            eps[:, diag, diag] = c*iSNR.T
+            eps[:, diag, diag] = c * iSNR.T
             Ra += eps
+        else:  # mixing-matrix-based regularization coefficients
+            Ra += np.maximum(0, c-np.linalg.norm(Ra, ord=-2, axis=(1, 2))/(normAA+1e-2))[:, np.newaxis, np.newaxis] \
+                  * np.eye(self.n)[np.newaxis, :, :]
         try:
             Ua, Sa, Va = np.linalg.svd(Ra)
         except np.linalg.LinAlgError:
@@ -527,28 +496,26 @@ class DecGMCA:
         Sa = np.maximum(Sa, np.max(Sa, axis=1)[:, np.newaxis] * 1e-9)
         iRa = np.einsum('...ki,...k,...jk', Va, 1/Sa, Ua)
         piA = np.einsum('ijk,lk,li->ijl', iRa, A, self.Hfft)
-        Sfft[:] = np.einsum('ijk,ki->ji', piA, Xfft)
+        Sfft[:] = np.einsum('ijk,ki->ji', piA, self.Xfft)
         if not self.useMad:
             self.invOpSp = np.einsum('ijk,ijk->ij', piA, piA)
 
         return 0
 
-    def thresholding(self, K, remCs, doRw, nnegS, calcSfft_det, Sfft=None, Sfft_det=None, S=None, stds=None, Swtrw=None,
-                     oracle=False):
-        """Perform the thresholding in the wavelet domain of the sources and possibly a projection on the positive
-        orthant.
+    def constraints_s(self, K, doRw, nnegS, projS, Sfft=None, Sfft_det=None, S=None, stds=None, Swtrw=None,
+                      oracle=False):
+        """Apply the constraints on the sources (thresholding in the wavelet domain and possibly a projection on the
+        positive orthant.
 
         Parameters
         ----------
         K: float
             L0 support of the sources
-        remCs: bool
-            remove coarse scale
         doRw: bool
             do reweighting
         nnegS: bool
             apply non-negativity constraint on the sources
-        calcSfft_det: bool
+        projS: bool
             project the sources in Fourier domain after the update (result saved in Sfft_det)
         Sfft: np.ndarray
             (n,p) complex array, estimated sources in Fourier domain (in-place update, default: self.Sfft)
@@ -598,11 +565,7 @@ class DecGMCA:
                 elif self.useMad:
                     std = utils.mad(Swtij, M=self.M)
                 else:
-                    if not remCs:
-                        std = self.nStd*np.sqrt(np.sum(self.invOpSp[:, i] * self.wt_filters[:, j] ** 2) / self.p)
-                    else:
-                        std = self.nStd * np.sqrt(np.sum(self.invOpSp[:, i] * self.wt_filters[:, j] ** 2 *
-                                                         (1-self.wt_filters[:, -1]) ** 2)/self.p)
+                    std = self.nStd*np.sqrt(np.sum(self.invOpSp[:, i] * self.wt_filters[:, j] ** 2) / self.p)
                 thrd = self.k * std
 
                 # If oracle, threshold Swtrw
@@ -637,10 +600,7 @@ class DecGMCA:
                 Swt[i, :, j] = Swtij
 
         # Reconstruct S
-        if remCs:
-            S[:] = fftt.wt_rec(Swt[:, :, :-1])
-        else:
-            S[:] = fftt.wt_rec(Swt)
+        S[:] = fftt.wt_rec(Swt)
             
         # Non-negativity constraint
         if nnegS:
@@ -655,23 +615,19 @@ class DecGMCA:
         if doRw and self.L1 and not oracle:
             self.Swtrw = Swt[:, :, :-1]
 
-        # Project S in Fourier domain
-        Sfft[:] = fftt.fft(S)
-        
-        if calcSfft_det:     # project the detail scales of S in Fourier domain
-            if not remCs:
-                Sfft_det[:] = fftt.fft(fftt.wt_rec(Swt[:, :, :-1]))
-            else:
-                Sfft_det[:] = Sfft
+        if projS:     # project the detail scales of S in the SH domain
+            Sfft[:] = fftt.fft(S)
+            Sfft_det[:] = fftt.fftprod(Sfft, 1-self.wt_filters[:, -1])
+
         return 0
 
-    def update_a(self, Sfft=None, A=None):
+    def update_a(self, Sfft_det=None, A=None):
         """Perform the least-square update of the mixing matrix (with the detail scales of the data and the sources).
 
         Parameters
         ----------
-        Sfft: np.ndarray
-            (n,p) complex array, sources in Fourier domain (default: self.Sfft)
+        Sfft_det: np.ndarray
+            (n,p) complex array, detail scales of the sources in Fourier domain (default: self.Sfft_det)
         A: np.ndarray
             (m,n) float array, estimated mixing matrix (in-place update, default: self.A)
 
@@ -681,12 +637,12 @@ class DecGMCA:
             error code
         """
 
-        if Sfft is None:
-            Sfft = self.Sfft_det
+        if Sfft_det is None:
+            Sfft_det = self.Sfft_det
         if A is None:
             A = self.A
 
-        Rs = np.real(np.einsum('il,jl,kl', self.Hfft**2, Sfft, np.conj(Sfft)))
+        Rs = np.real(np.einsum('il,jl,kl', self.Hfft**2, Sfft_det, np.conj(Sfft_det)))
         try:
             Us, Ss, Vs = np.linalg.svd(Rs)
         except np.linalg.LinAlgError:
@@ -695,7 +651,7 @@ class DecGMCA:
             return 1
         Ss = np.maximum(Ss, np.max(Ss, axis=1)[:, np.newaxis] * 1e-9)
         iRs = np.einsum('...ij,...j,...jk', Us, 1/Ss, Vs)
-        Ws = np.real(np.einsum('ij,kj->ik', self.Xfft_det*self.Hfft, np.conj(Sfft)))
+        Ws = np.real(np.einsum('ij,kj->ik', self.Xfft_det*self.Hfft, np.conj(Sfft_det)))
         A[:] = np.einsum('ij,ijk->ik', Ws, iRs)
 
         # Non-negativity constraint
@@ -710,7 +666,7 @@ class DecGMCA:
         return 0
 
     def refine_s_end(self):
-        """Perform the finale refinement of the sources, with K = 1 and the coarse scales of the data.
+        """Perform the finale refinement of the sources, with K = 1.
 
         Returns
         -------
@@ -720,32 +676,35 @@ class DecGMCA:
         if self.verb >= 2:
             print("Finale refinement of the sources with the finale estimation of A...")
 
-        strat = self.wuStrat
+        if self.cstWuRegStr:
+            strat = 0
+        else:
+            strat = 1
         c = np.min(self.c_wu)
 
-        update_s = self.update_s(strat, c, 1, remCs=False, doRw=False, calcSfft_det=False)
+        update_s = self.update_s(strat, c, 1, doRw=False, projS=not self.keepWuRegStr)
         if update_s:  # error caught
             return 1
 
         # Initialize attributes
         self.Swtrw = np.zeros((self.n, self.p, self.nscales))
-        Sfft_old = np.zeros((self.n, self.p), dtype=complex)
+        S_old = np.zeros((self.n, self.p))
         delta_S = np.inf
         it = 0
 
-        if self.eps[0] != 0:  # for the comparison with ODecGMCA, to be deleted
-            strat = 4
+        if not self.keepWuRegStr:
+            strat = 2
             c = self.c_ref
 
         while delta_S >= self.eps[2] and it < 50:
             it += 1
 
-            update_s = self.update_s(strat, c, 1, remCs=False, calcSfft_det=False)
+            update_s = self.update_s(strat, c, 1, projS=not self.keepWuRegStr)
             if update_s:  # error caught
                 return 1
 
-            delta_S = np.sqrt(np.sum(np.abs(self.Sfft - Sfft_old) ** 2) / np.sum(np.abs(self.Sfft)) ** 2)
-            Sfft_old = self.Sfft.copy()
+            delta_S = np.linalg.norm(S_old-self.S)/np.linalg.norm(self.S)
+            S_old = self.S.copy()
 
             if self.A0 is not None and self.S0 is not None and self.verb >= 2:
                 Acp, Scp, _ = utils.corr_perm(self.A0, self.S0, self.A, self.S, optInd=True)
@@ -780,7 +739,7 @@ class DecGMCA:
         Parameters
         ----------
         strat: int
-            regularization strategy
+            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectra-based)
         c: float
             regularization hyperparameter
         S: np.ndarray
@@ -788,7 +747,7 @@ class DecGMCA:
         A0: np.ndarray
             (m,n) float array, ground truth mixing matrix (default: self.A0)
         iSNR0: np.ndarray
-            (n,p) float array, ground truth regularization parameters for strategy #4 (default: self.iSNR0)
+            (n,p) float array, ground truth regularization parameters for strategy #2 (default: self.iSNR0)
         Swt0: np.ndarray
             (n,p,nscales) float array, ground truth sources in the wavelet domain (default: self.Swt0)
 
@@ -798,7 +757,7 @@ class DecGMCA:
             error code
         """
 
-        update_s = self.update_s(strat, c, 1, remCs=False, doRw=True, S=S, A=A0, iSNR=iSNR0, Swtrw=Swt0, oracle=True)
+        update_s = self.update_s(strat, c, 1, doRw=True, S=S, A=A0, iSNR=iSNR0, Swtrw=Swt0, oracle=True)
         if update_s:  # error caught
             return 1
 
@@ -806,7 +765,7 @@ class DecGMCA:
 
         return 0
 
-    def find_optc(self, c_lim=None, strat=4, precision=1e-3):
+    def find_optc(self, c_lim=None, strat=2, precision=1e-3):
         """Grid search of the optimal regularization hyperparameter.
 
         Parameters
@@ -814,7 +773,7 @@ class DecGMCA:
         c_lim: np.ndarray
             zone of the grid search, in log10 scale (default: np.array([-5, 1]))
         strat: int
-            regularization strategy
+            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectra-based)
         precision: float
             precision of the optimal hyperparameter
 
@@ -826,7 +785,7 @@ class DecGMCA:
         """
 
         if c_lim is None:
-            c_lim = np.array([-5, 1])
+            c_lim = np.array([-5., 1.])
 
         c_min = 10 ** c_lim[0]
         c_max = 10 ** c_lim[1]
