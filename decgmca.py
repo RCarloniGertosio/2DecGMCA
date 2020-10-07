@@ -19,9 +19,7 @@ class DecGMCA:
     A = decgmca.A.copy()
     """
 
-    def __init__(self, X, Hfft, M=None, n=4, AInit=None, nnegA=False, nnegS=False, nneg=None, keepWuRegStr=False,
-                 cstWuRegStr=False, minWuIt=100, c_wu=4e-1, c_ref=2e-1, cwuDec=None, nStd=0, useMad=False, nscales=3,
-                 k=3, K_max=0.5, L1=True, doRw=True, eps=None, verb=0, S0=None, A0=None, iSNR0=None):
+    def __init__(self, X, Hfft, n, **kwargs):
         """Initialize object.
 
         Parameters
@@ -31,55 +29,57 @@ class DecGMCA:
         Hfft : np.ndarray
             (m,p) float array, convolution kernels in Fourier domain, with zero-frequency shifted to the center and
             flattened
-        M : np.ndarray
-            (p,) float array, mask, optional
         n : int
             number of sources to be estimated
+        M : np.ndarray
+            (p,) float array, mask. Default: None (no mask)
         AInit : np.ndarray
-            (m,n) float array, initial value for the mixing matrix. If None, PCA-based initialization
+            (m,n) float array, initial value for the mixing matrix. Default: None (PCA-based initialization)
         nnegA : bool
-            non-negativity constraint on A
+            non-negativity constraint on A. Default: False
         nnegS : bool
-            non-negativity constraint on S
+            non-negativity constraint on S. Default: False
         nneg : bool
-            non-negativity constraint on A and S. If not None, overrides nnegA and nnegS
+            non-negativity constraint on A and S, overrides nnegA and nnegS if not None. Default: None
         keepWuRegStr : bool
-            keep warm-up regularization strategy during refinement (else: use spectra-based coefficients)
+            keep warm-up regularization strategy during refinement. Default: False (spectrum-based coefficients)
         cstWuRegStr : bool
-            use constant regularization coefficients during warm-up (instead of mixing-matrix-based coefficients)
+            use constant regularization coefficients during warm-up. Default: False (mixing-matrix-based coefficients)
         minWuIt : int
-            minimum number of iterations at warm-up
+            minimum number of iterations at warm-up. Default: 50
         c_wu : float or np.ndarray
-            float or (2,) float array, Tikhonov regularization hyperparameter at warm-up
+            float or (2,) float array, Tikhonov regularization hyperparameter at warm-up. Default: 1e-2
         c_ref : float
-            Tikhonov regularization hyperparameter at refinement (with spectra-based regularization coefficients)
+            Tikhonov regularization hyperparameter at refinement. Default: 0.5
         cwuDec : int
-            number of iterations for the decrease of c_wu (if c_wu is an array). If None: minWuIt/2
+            number of iterations for the decrease of c_wu (if c_wu is an array). Default: minWuIt/2
         nStd : float
-            noise standard deviation
+            noise standard deviation (compulsory for spectrum-based reg. & analytical est. of noise std in source dom.)
         useMad : bool
-            True: noise std estimated with MAD, False: noise std estimated analytically)
+            estimate noise std in source domain with MAD (else: analytical estimation). Default: True
         nscales : int
-            number of detail scales
+            number of detail scales. Default: 3
         k : float
-            parameter of the k-std thresholding
+            parameter of the k-std thresholding. Default: 3
         K_max : float
             maximal L0 norm of the sources. Being a percentage, it should be between 0 and 1
         L1 : bool
-            if set to 0, L0 rather than L1 penalization
+            L1 penalization (else: L0 penalization). Default: True
         doRw : bool
-            do L1 reweighing during refinement (only if L1 penalization)
+            do L1 reweighing during refinement (only if L1 penalization). Default: True
+        thrEnd : bool
+            perform thresholding during the finale estimation of the sources. Default: True
         eps : np.ndarray
             (3,) float array, stopping criteria of (1) the warm-up, (2) the refinement and (3) the finale refinement of
-            S
+            S. Default: np.array([1e-2, 1e-4, 1e-4])
         verb : int
-            verbosity level, from 0 (mute) to 5 (most talkative)
+            verbosity level, from 0 (mute) to 5 (most talkative). Default: 0
         S0 : np.ndarray
-            (n,p) float array, ground truth sources (for testing purposes)
+            (n,p) float array, ground truth sources (for testing purposes). Default: None
         A0 : np.ndarray
-            (m,n) float array, ground truth mixing matrix (for testing purposes)
+            (m,n) float array, ground truth mixing matrix (for testing purposes). Default: None
         iSNR0 : np.ndarray
-            (n,p) float array, regularization parameters for spectra-based regularization coefficients (for testing
+            (n,p) float array, regularization parameters for spectrum-based regularization coefficients (for testing
             purposes). Default: deduced from S0 and nStd
 
         Returns
@@ -89,57 +89,54 @@ class DecGMCA:
 
         # Initialize given attributes
         self.X = X
-        self.Hfft = Hfft.copy()
-        if len(np.shape(self.Hfft)) == 1:  # if Hl is a 1D array, expand it to a 2D array
-            self.Hfft = np.expand_dims(self.Hfft, axis=0)
-            self.Hfft = np.tile(self.Hfft, [self.m, 1])
-        if M is None:
-            self.M = np.ones(np.shape(X)[-1])
-        else:
-            self.M = M.copy()
+        self.Hfft = Hfft
         self.n = n
-        self.AInit = cp.copy(AInit)
-        self.nnegA = nnegA
-        self.nnegS = nnegS
-        if nneg:
-            self.nnegA = True
-            self.nnegS = True
-        self.keepWuRegStr = keepWuRegStr
-        self.cstWuRegStr = cstWuRegStr
-        self.minWuIt = minWuIt
-        self.c_wu = c_wu
-        self.c_ref = c_ref
-        if cwuDec is None:
-            self.cwuDec = int(self.minWuIt/2)
+        self.M = kwargs.get('M', None)
+        self.AInit = kwargs.get('AInit', None)
+        nneg = kwargs.get('nneg', None)
+        if nneg is not None:
+            self.nnegA = nneg
+            self.nnegS = nneg
         else:
-            self.cwuDec = cwuDec
-        self.nStd = nStd
-        self.useMad = useMad
-        self.nscales = nscales
-        self.k = k
-        self.K_max = K_max
-        self.L1 = L1
-        self.doRw = doRw
-        if eps is None:
-            self.eps = [1e-2, 1e-5, 1e-5]
+            self.nnegA = kwargs.get('nnegA', False)
+            self.nnegS = kwargs.get('nnegS', False)
+        self.keepWuRegStr = kwargs.get('keepWuRegStr', False)
+        self.cstWuRegStr = kwargs.get('cstWuRegStr', False)
+        self.minWuIt = kwargs.get('minWuIt', 50)
+        self.c_wu = kwargs.get('c_wu', 1e-2)
+        self.c_ref = kwargs.get('c_ref', .5)  # kwargs.get('',)
+        self.cwuDec = kwargs.get('cwuDec', int(self.minWuIt/2))
+        self.useMad = kwargs.get('useMad', True)
+        if 'nStd' not in kwargs and (not self.keepWuRegStr or not self.useMad):
+            raise KeyError('nStd must be provided for spectrum-based regularization or noise std calc. in source dom.')
         else:
-            self.eps = eps.copy()
-        self.verb = verb
-        self.S0 = cp.copy(S0)
-        self.A0 = cp.copy(A0)
-        self.iSNR0 = cp.copy(iSNR0)
+            self.nStd = kwargs.get('nStd', 0.)
+        self.nscales = kwargs.get('nscales', 3)
+        self.k = kwargs.get('k', 3)
+        self.K_max = kwargs.get('K_max', .5)
+        self.L1 = kwargs.get('L1', True)
+        self.doRw = kwargs.get('doRw', True)
+        self.thrEnd = kwargs.get('thrEnd', True)
+        self.eps = kwargs.get('eps', np.array([1e-2, 1e-4, 1e-4]))
+        self.verb = kwargs.get('verb', 0)
+        self.S0 = kwargs.get('S0', None)
+        self.A0 = kwargs.get('A0', None)
+        self.iSNR0 = kwargs.get('iSNR0', None)
 
         # Initialize deduced attributes
         self.m = np.shape(self.X)[0]                        # number of observations
         self.p = np.shape(self.X)[1]                        # number of pixels
         self.size = np.int(np.sqrt(self.p))
-        self.supp = np.int(np.sum(self.M))                  # support of the mask
+        if self.M is not None:
+            self.supp = np.int(np.sum(self.M))              # support of the mask
+        else:
+            self.supp = self.p
         self.wt_filters = fftt.get_wt_filters(size=self.size, nscales=self.nscales)  # wavelet filters
         self.Xfft = fftt.fft(self.X)                        # data in Fourier domain
         self.Xfft_det = fftt.fftprod(self.Xfft, 1 - self.wt_filters[:, -1])  # data in Fourier domain w/ no coarse scale
         self.nStdFFT = self.nStd * np.sqrt(self.p)          # noise std in the Fourier domain
         # For testing purposes:
-        if self.S0 is not None and iSNR0 is None:
+        if self.S0 is not None and self.iSNR0 is None:
             self.iSNR0 = self.nStdFFT ** 2 / (np.abs(fftt.fft(self.S0))+1e-10)**2 * self.supp / self.p
         if self.S0 is not None:
             self.S0wt = fftt.wt_trans(self.S0, nscales=self.nscales)         # true sources in the wavelet domain
@@ -192,6 +189,8 @@ class DecGMCA:
             res += '  - L1 penalization\n'
         else:
             res += '  - L1 penalization with L1-reweighting\n'
+        if not self.thrEnd:
+            res += '  - No source thresholding after the separation process\n'
         return res
 
     def run(self):
@@ -304,7 +303,7 @@ class DecGMCA:
 
             # Stage update
 
-            if stage == 'wu' and it >= self.minWuIt and (delta_S <= self.eps[0] or it >= self.minWuIt + 100):
+            if stage == 'wu' and it >= self.minWuIt and (delta_S <= self.eps[0] or it >= self.minWuIt + 50):
                 if self.verb >= 2:
                     print("> End of the warm-up (iteration %i)" % it)
                 self.lastWuIt = it
@@ -361,14 +360,14 @@ class DecGMCA:
             if self.keepWuRegStr:
                 c = np.min(self.c_wu)
             else:
-                strat = 2  # spectra-based regularization coefficients
+                strat = 2  # spectrum-based regularization coefficients
                 c = self.c_ref
             K = self.K_max
             doRw = self.doRw
             nnegS = self.nnegS
         return strat, c, K, doRw, nnegS
 
-    def update_s(self, strat, c, K, doRw=None, nnegS=None, projS=True, Sfft=None, Sfft_det=None, S=None, A=None,
+    def update_s(self, strat, c, K, doThr=True, doRw=None, nnegS=None, Sfft=None, Sfft_det=None, S=None, A=None,
                  iSNR=None, stds=None, Swtrw=None, oracle=False):
         """Perform the update of the sources.
 
@@ -378,17 +377,17 @@ class DecGMCA:
         Parameters
         ----------
         strat: int
-            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectra-based)
+            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectrum-based)
         c: float
             regularization hyperparameter
         K: float
             L0 support of the sources
+        doThr: bool
+            perform thresholding
         doRw: bool
             do reweighting (default: self.doRw)
         nnegS: bool
             apply non-negativity constraint on the sources (default: self.nnegS)
-        projS: bool
-            project the sources in Fourier domain after the update (result saved in Sfft_det)
         Sfft: np.ndarray
             (n,p) complex array, estimated sources in Fourier domain (in-place update, default: self.Sfft)
         Sfft_det: np.ndarray
@@ -423,7 +422,7 @@ class DecGMCA:
         if ls_s:  # error caught
             return 1
 
-        self.constraints_s(K, doRw, nnegS, projS, Sfft=Sfft, Sfft_det=Sfft_det, S=S, stds=stds, Swtrw=Swtrw,
+        self.constraints_s(doThr, K, doRw, nnegS, Sfft=Sfft, Sfft_det=Sfft_det, S=S, stds=stds, Swtrw=Swtrw,
                            oracle=oracle)
         
         return 0
@@ -434,7 +433,7 @@ class DecGMCA:
         Parameters
         ----------
         strat: int
-            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectra-based)
+            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectrum-based)
         c: float
             regularization hyperparameter
         Sfft: np.ndarray
@@ -461,7 +460,9 @@ class DecGMCA:
                 A = self.A0
         if strat == 2 and iSNR is None:
             if not oracle:
-                iSNR = self.nStdFFT ** 2 / (np.abs(Sfft)+1e-10)**2 * self.supp / self.p
+                spectra = np.abs(Sfft)**2
+                spectra = np.maximum(spectra, np.max(spectra, axis=1)[:, np.newaxis]*1e-20)
+                iSNR = self.nStdFFT ** 2 / spectra * self.supp / self.p
             else:
                 iSNR = self.iSNR0
 
@@ -469,7 +470,7 @@ class DecGMCA:
             if strat == 0:
                 regstrat = 'constant'
             elif strat == 2:
-                regstrat = 'spectra-based'
+                regstrat = 'spectrum-based'
             else:
                 regstrat = 'mixing-matrix-based'
             print("Regularization strategy: " + regstrat + " - hyperparameter: c = %e  " % c)
@@ -479,7 +480,7 @@ class DecGMCA:
         Ra = np.einsum('lj,li,lk', A, self.Hfft**2, A)
         if strat == 0:  # constant regularization coefficients
             Ra += c*np.eye(self.n)[np.newaxis, :, :]
-        elif strat == 2:  # spectra-based regularization coefficients
+        elif strat == 2:  # spectrum-based regularization coefficients
             eps = np.zeros((self.p, self.n, self.n))
             diag = np.arange(self.n)
             eps[:, diag, diag] = c * iSNR.T
@@ -502,21 +503,21 @@ class DecGMCA:
 
         return 0
 
-    def constraints_s(self, K, doRw, nnegS, projS, Sfft=None, Sfft_det=None, S=None, stds=None, Swtrw=None,
+    def constraints_s(self, doThr, K, doRw, nnegS, Sfft=None, Sfft_det=None, S=None, stds=None, Swtrw=None,
                       oracle=False):
         """Apply the constraints on the sources (thresholding in the wavelet domain and possibly a projection on the
-        positive orthant.
+        positive orthant. The input data are Sfft. The output data are S, as well as Sfft and Sfft_det.
 
         Parameters
         ----------
+        doThr : bool
+            perform thresholding
         K: float
             L0 support of the sources
         doRw: bool
             do reweighting
         nnegS: bool
             apply non-negativity constraint on the sources
-        projS: bool
-            project the sources in Fourier domain after the update (result saved in Sfft_det)
         Sfft: np.ndarray
             (n,p) complex array, estimated sources in Fourier domain (in-place update, default: self.Sfft)
         Sfft_det: np.ndarray
@@ -550,54 +551,63 @@ class DecGMCA:
             else:
                 Swtrw = self.S0wt
 
-        if self.verb >= 3:
-            print("Maximal L0 norm of the sources: %.1f %%" % (K * 100))
+        if not doThr:
 
-        Swt = fftt.wt_trans(Sfft, nscales=self.nscales, fft_in=True)
+            S[:] = fftt.ifft(Sfft)
+            if not nnegS:  # nothing more to do
+                Sfft_det[:] = fftt.fftprod(Sfft, 1 - self.wt_filters[:, -1])
+                return 0
 
-        # Thresholding
-        for i in range(self.n):
-            for j in range(self.nscales):
-                Swtij = Swt[i, :, j]
-                Swtrwij = Swtrw[i, :, j]
-                if stds is not None:
-                    std = stds[i, j]
-                elif self.useMad:
-                    std = utils.mad(Swtij, M=self.M)
-                else:
-                    std = self.nStd*np.sqrt(np.sum(self.invOpSp[:, i] * self.wt_filters[:, j] ** 2) / self.p)
-                thrd = self.k * std
+        else:
 
-                # If oracle, threshold Swtrw
-                if oracle and self.L1 and doRw:
-                    Swtrwij = (Swtrwij - np.sign(Swtrwij) * (thrd - np.sqrt(np.abs(
-                        (Swtrwij - thrd * np.sign(Swtrwij)) * (3 * thrd * np.sign(Swtrwij) + Swtrwij))))) / 2 * (
-                                           np.abs(Swtrwij) >= thrd)
+            if self.verb >= 3:
+                print("Maximal L0 norm of the sources: %.1f %%" % (K * 100))
 
-                # Support based threshold
-                if K != 1:
-                    npix = np.sum(abs(Swtij) - thrd > 0)
-                    Kval = np.maximum(np.int(K*npix), 5)
-                    thrd = np.partition(abs(Swtij), self.p-Kval)[self.p-Kval]
+            Swt = fftt.wt_trans(Sfft, nscales=self.nscales, fft_in=True)
 
-                if self.verb == 4 and i == 0:
-                    print("Threshold of source %i at scale %i: %.5e" % (i+1, j+1, thrd))
-                elif self.verb == 5:
-                    print("Threshold of source %i at scale %i: %.5e" % (i+1, j+1, thrd))
+            # Thresholding
+            for i in range(self.n):
+                for j in range(self.nscales):
+                    Swtij = Swt[i, :, j]
+                    Swtrwij = Swtrw[i, :, j]
+                    if stds is not None:
+                        std = stds[i, j]
+                    elif self.useMad:
+                        std = utils.mad(Swtij, M=self.M)
+                    else:
+                        std = self.nStd*np.sqrt(np.sum(self.invOpSp[:, i] * self.wt_filters[:, j] ** 2) / self.p)
+                    thrd = self.k * std
 
-                # Adapt the threshold if reweighing demanded
-                if doRw and self.L1:
-                    thrd = thrd/(np.abs(Swtrwij)/np.maximum(1e-20, self.k*std)+1)
-                else:
-                    thrd = thrd * np.ones(self.p)
+                    # If oracle, threshold Swtrw
+                    if oracle and self.L1 and doRw:
+                        Swtrwij = (Swtrwij - np.sign(Swtrwij) * (thrd - np.sqrt(np.abs(
+                            (Swtrwij - thrd * np.sign(Swtrwij)) * (3 * thrd * np.sign(Swtrwij) + Swtrwij))))) / 2 * (
+                                               np.abs(Swtrwij) >= thrd)
 
-                # Apply the threshold
-                Swtij[(abs(Swtij) < thrd)] = 0
-                if self.L1:
-                    indNZ = np.where(abs(Swtij) > thrd)[0]
-                    Swtij[indNZ] = Swtij[indNZ]-thrd[indNZ]*np.sign(Swtij[indNZ])
+                    # Support based threshold
+                    if K != 1:
+                        npix = np.sum(abs(Swtij) - thrd > 0)
+                        Kval = np.maximum(np.int(K*npix), 5)
+                        thrd = np.partition(abs(Swtij), self.p-Kval)[self.p-Kval]
 
-                Swt[i, :, j] = Swtij
+                    if self.verb == 4 and i == 0:
+                        print("Threshold of source %i at scale %i: %.5e" % (i+1, j+1, thrd))
+                    elif self.verb == 5:
+                        print("Threshold of source %i at scale %i: %.5e" % (i+1, j+1, thrd))
+
+                    # Adapt the threshold if reweighing demanded
+                    if doRw and self.L1:
+                        thrd = thrd/(np.abs(Swtrwij)/np.maximum(1e-20, self.k*std)+1)
+                    else:
+                        thrd = thrd * np.ones(self.p)
+
+                    # Apply the threshold
+                    Swtij[(abs(Swtij) < thrd)] = 0
+                    if self.L1:
+                        indNZ = np.where(abs(Swtij) > thrd)[0]
+                        Swtij[indNZ] = Swtij[indNZ]-thrd[indNZ]*np.sign(Swtij[indNZ])
+
+                    Swt[i, :, j] = Swtij
 
         # Reconstruct S
         S[:] = fftt.wt_rec(Swt)
@@ -606,18 +616,18 @@ class DecGMCA:
         if nnegS:
             nneg = S > 0
             S *= nneg
-            Swt *= nneg[:, :, np.newaxis]
 
         if oracle:
             return 0
         
         # Save the wavelet coefficients of S for next iteration
-        if doRw and self.L1 and not oracle:
+        if doThr and doRw and self.L1 and not oracle:
+            if nnegS:
+                Swt *= nneg[:, :, np.newaxis]
             self.Swtrw = Swt[:, :, :-1]
 
-        if projS:     # project the detail scales of S in the SH domain
-            Sfft[:] = fftt.fft(S)
-            Sfft_det[:] = fftt.fftprod(Sfft, 1-self.wt_filters[:, -1])
+        Sfft[:] = fftt.fft(S)
+        Sfft_det[:] = fftt.fftprod(Sfft, 1-self.wt_filters[:, -1])
 
         return 0
 
@@ -682,7 +692,7 @@ class DecGMCA:
             strat = 1
         c = np.min(self.c_wu)
 
-        update_s = self.update_s(strat, c, 1, doRw=False, projS=not self.keepWuRegStr)
+        update_s = self.update_s(strat, c, 1, doThr=self.thrEnd, doRw=False)
         if update_s:  # error caught
             return 1
 
@@ -696,10 +706,10 @@ class DecGMCA:
             strat = 2
             c = self.c_ref
 
-        while delta_S >= self.eps[2] and it < 50:
+        while delta_S >= self.eps[2] and it < 25:
             it += 1
 
-            update_s = self.update_s(strat, c, 1, projS=not self.keepWuRegStr)
+            update_s = self.update_s(strat, c, 1, doThr=self.thrEnd)
             if update_s:  # error caught
                 return 1
 
@@ -739,7 +749,7 @@ class DecGMCA:
         Parameters
         ----------
         strat: int
-            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectra-based)
+            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectrum-based)
         c: float
             regularization hyperparameter
         S: np.ndarray
@@ -773,7 +783,7 @@ class DecGMCA:
         c_lim: np.ndarray
             zone of the grid search, in log10 scale (default: np.array([-5, 1]))
         strat: int
-            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectra-based)
+            regularization strategy (0: constant, 1: mixing-matrix-based, 2: spectrum-based)
         precision: float
             precision of the optimal hyperparameter
 
