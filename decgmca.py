@@ -1,7 +1,6 @@
 import numpy as np
 import ffttools as fftt
 import utils
-import copy as cp
 
 
 class DecGMCA:
@@ -12,8 +11,7 @@ class DecGMCA:
 
     Example
     --------
-    decgmca = SDecGMCA(X, Hl, n=2, k=3, K_max=0.5, nscales=3, wuStrat=3, c_wu=numpy.array([5, 0.5]), c_ref=0.5,
-    nStd=1e-7)\n
+    decgmca = SDecGMCA(X, Hl, n=2, k=3, K_max=0.5, nscales=3, c_wu=numpy.array([5, 0.5]), c_ref=0.5, nStd=1e-7)\n
     decgmca.run()\n
     S = decgmca.S.copy()\n
     A = decgmca.A.copy()
@@ -31,6 +29,8 @@ class DecGMCA:
             flattened
         n : int
             number of sources to be estimated
+        fft_in : bool
+            the data X are in Fourier domain. Default: False
         M : np.ndarray
             (p,) float array, mask. Default: None (no mask)
         AInit : np.ndarray
@@ -88,7 +88,6 @@ class DecGMCA:
         """
 
         # Initialize given attributes
-        self.X = X
         self.Hfft = Hfft
         self.n = n
         self.M = kwargs.get('M', None)
@@ -124,15 +123,19 @@ class DecGMCA:
         self.iSNR0 = kwargs.get('iSNR0', None)
 
         # Initialize deduced attributes
-        self.m = np.shape(self.X)[0]                        # number of observations
-        self.p = np.shape(self.X)[1]                        # number of pixels
+        self.m = np.shape(X)[0]                        # number of observations
+        self.p = np.shape(X)[1]                        # number of pixels
         self.size = np.int(np.sqrt(self.p))
         if self.M is not None:
             self.supp = np.int(np.sum(self.M))              # support of the mask
         else:
             self.supp = self.p
         self.wt_filters = fftt.get_wt_filters(size=self.size, nscales=self.nscales)  # wavelet filters
-        self.Xfft = fftt.fft(self.X)                        # data in Fourier domain
+        fft_in = kwargs.get('fft_in', False)
+        if not fft_in:
+            self.Xfft = fftt.fft(X)  # data in Fourier domain
+        else:
+            self.Xfft = X
         self.Xfft_det = fftt.fftprod(self.Xfft, 1 - self.wt_filters[:, -1])  # data in Fourier domain w/ no coarse scale
         self.nStdFFT = self.nStd * np.sqrt(self.p)          # noise std in the Fourier domain
         # For testing purposes:
@@ -225,12 +228,12 @@ class DecGMCA:
             error code
         """
 
-        X = fftt.convolve(self.X, self.Hfft[0, :] / (self.Hfft + 1e-10))
+        Xfft = fftt.fftprod(self.Xfft, self.Hfft[0, :]*np.conj(self.Hfft)/(np.abs(self.Hfft)**2 + 1e-10))
         # Initialize A
         if self.AInit is not None:
             self.A = self.AInit.copy()
         else:  # PCA with the deteriorated data
-            R = X@X.T
+            R = np.real(Xfft@np.conj(Xfft.T))
             D, V = np.linalg.eig(R)
             self.A = V[:, 0:self.n]
         self.A /= np.maximum(np.linalg.norm(self.A, axis=0), 1e-24)
@@ -477,7 +480,7 @@ class DecGMCA:
 
         normAA = np.linalg.norm(A.T@A, ord=-2)
 
-        Ra = np.einsum('lj,li,lk', A, self.Hfft**2, A)
+        Ra = np.einsum('lj,li,lk', A, np.abs(self.Hfft)**2, A)
         if strat == 0:  # constant regularization coefficients
             Ra += c*np.eye(self.n)[np.newaxis, :, :]
         elif strat == 2:  # spectrum-based regularization coefficients
@@ -486,7 +489,7 @@ class DecGMCA:
             eps[:, diag, diag] = c * iSNR.T
             Ra += eps
         else:  # mixing-matrix-based regularization coefficients
-            Ra += np.maximum(0, c-np.linalg.norm(Ra, ord=-2, axis=(1, 2))/(normAA+1e-2))[:, np.newaxis, np.newaxis] \
+            Ra += np.maximum(0, c-np.linalg.norm(Ra, ord=-2, axis=(1, 2))/normAA)[:, np.newaxis, np.newaxis] \
                   * np.eye(self.n)[np.newaxis, :, :]
         try:
             Ua, Sa, Va = np.linalg.svd(Ra)
@@ -496,7 +499,7 @@ class DecGMCA:
             return 1
         Sa = np.maximum(Sa, np.max(Sa, axis=1)[:, np.newaxis] * 1e-9)
         iRa = np.einsum('...ki,...k,...jk', Va, 1/Sa, Ua)
-        piA = np.einsum('ijk,lk,li->ijl', iRa, A, self.Hfft)
+        piA = np.einsum('ijk,lk,li->ijl', iRa, A, np.conj(self.Hfft))
         Sfft[:] = np.einsum('ijk,ki->ji', piA, self.Xfft)
         if not self.useMad:
             self.invOpSp = np.einsum('ijk,ijk->ij', piA, piA)
@@ -652,7 +655,7 @@ class DecGMCA:
         if A is None:
             A = self.A
 
-        Rs = np.real(np.einsum('il,jl,kl', self.Hfft**2, Sfft_det, np.conj(Sfft_det)))
+        Rs = np.real(np.einsum('il,jl,kl', np.abs(self.Hfft)**2, Sfft_det, np.conj(Sfft_det)))
         try:
             Us, Ss, Vs = np.linalg.svd(Rs)
         except np.linalg.LinAlgError:
@@ -661,7 +664,7 @@ class DecGMCA:
             return 1
         Ss = np.maximum(Ss, np.max(Ss, axis=1)[:, np.newaxis] * 1e-9)
         iRs = np.einsum('...ij,...j,...jk', Us, 1/Ss, Vs)
-        Ws = np.real(np.einsum('ij,kj->ik', self.Xfft_det*self.Hfft, np.conj(Sfft_det)))
+        Ws = np.real(np.einsum('ij,kj->ik', self.Xfft_det*np.conj(self.Hfft), np.conj(Sfft_det)))
         A[:] = np.einsum('ij,ijk->ik', Ws, iRs)
 
         # Non-negativity constraint
