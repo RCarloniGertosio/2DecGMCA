@@ -1,6 +1,6 @@
 # 2DecGMCA
 
-2DecGMCA (Deconvolution Generalized Morphological Component Analysis) is an algorithm aiming at solving joint Deconvolution and Blind Source Separation (DBSS) problems. It is a 2D adaptation of SDecGMCA, which processes spherical data.
+2DecGMCA (Deconvolution Generalized Morphological Component Analysis) is an algorithm aiming at solving joint Deconvolution and Blind Source Separation (DBSS) problems. It is a 2D adaptation of [SDecGMCA](https://github.com/RCarloniGertosio/SDecGMCA), which processes spherical data.
 
 ## Contents
 1. [Introduction](#intro)
@@ -9,6 +9,8 @@
 1. [Parameters](#param)
 1. [Example](#example)
 1. [Authors](#authors)
+1. [Reference](#ref)
+1. [License](#license)
 
 <a name="intro"></a>
 ## Introduction
@@ -69,9 +71,10 @@ Below is the list of the main attributes of the DecGMCA class.
 
 | Parameter | Type                            | Information                                                                                | Default value            |
 |-----------|---------------------------------|--------------------------------------------------------------------------------------------|--------------------------|
-| `X`       | (m,p) float numpy.ndarray       | input data in Healpix representation, each row corresponds to an observation               | N/A                      |
+| `X`       | (m,p) float numpy.ndarray       | input data, each row corresponds to a flattened observation                                         | N/A                      |
 | `Hfft`    | (m,p) float numpy.ndarray       | convolution kernels in Fourier domain (flattened & with 0-frequency shifted to the center) | N/A                      |
 | `n`       | int                             | number of sources to be estimated                                                          | N/A                      |
+| `fft_in`  | bool                            | the data X are in Fourier domain                                                           | False                    |
 | `M`       | (p,) float numpy.ndarray        | mask                                                                                       | None                     |
 | `nnegA`   | bool                            | non-negativity constraint on A                                                             | False                    |
 | `nnegS`   | bool                            | non-negativity constraint on S                                                             | False                    |
@@ -84,7 +87,7 @@ Below is the list of the main attributes of the DecGMCA class.
 | `k`       | float                           | parameter of the k-std thresholding                                                        | 3                        |
 | `K_max`   | float                           | maximal L0 norm of the sources. Being a percentage, it should be between 0 and 1           | 0.5                      |
 | `thrEnd`  | bool                            | perform thresholding during the finale estimation of the sources                           | True                     |
-| `eps`     | (3,) float numpy.ndarray        | stopping criteria of (1) the warm-up, (2) the refinement and (3) the finale refinement ofS | [0.2, 0.5, 0.5]          |
+| `eps`     | (3,) float numpy.ndarray        | stopping criteria of (1) the warm-up, (2) the refinement and (3) the finale refinement of S | [1e-2, 1e-4, 1e-4]      |
 | `verb`    | int                             | verbosity level, from 0 (mute) to 5 (most talkative)                                       | 0                        |
 
 Below is the list of the other attributes of the DecGMCA class, which can reasonably be equal to their default values.
@@ -113,3 +116,16 @@ A = decgmca.A.copy()  # estimated mixing matrix
 
 <a name="authors"></a>
 ## Authors
+
+* Rémi Carloni Gertosio
+* Jérôme Bobin
+
+<a name="ref"></a>
+## Reference
+
+R. Carloni Gertosio, J. Bobin, [*Joint deconvolution and unsupervised source separation for data on the sphere*](https://doi.org/10.1016/j.dsp.2020.102946)
+
+<a name="license"></a>
+## License
+
+This project is licensed under the LGPL-3.0 License. 

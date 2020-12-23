@@ -346,8 +346,8 @@ def generate_filt(m=8, size=256, minResol=None, maxResol=None, infResol=False):
 
 # View data
 
-def view(X, X2=None, log=False, title='', minimum=None, maximum=None, cbar=True):
-    """Plot one or more arrays.
+def view(X, X2=None, log=False, title='', minimum=None, maximum=None, cbar=True, newfig=True):
+    """Plot one or more arrays. If input is complex, plots the amplitude.
 
     Parameters
     ----------
@@ -365,11 +365,17 @@ def view(X, X2=None, log=False, title='', minimum=None, maximum=None, cbar=True)
         maximum range value (default: max(maps, maps2))
     cbar: bool
         show color bar
+    newfig: bool
+        create a new figure
 
     Returns
     -------
     None
     """
+    if X.dtype == 'complex' or (X2 is not None and X2.dtype == 'complex'):
+        X = np.abs(X)
+        if X2 is not None:
+            X2 = np.abs(X2)
 
     if len(np.shape(X)) == 1:
         X = np.expand_dims(X, axis=0)
@@ -391,7 +397,8 @@ def view(X, X2=None, log=False, title='', minimum=None, maximum=None, cbar=True)
         def f(x):
             return np.log10(x - minimum + 1)
     for i in range(np.shape(X)[0]):
-        plt.figure()
+        if newfig:
+            plt.figure()
         plt.imshow(np.reshape(f(X[i, :]), (size, size)), vmin=f(minimum), vmax=f(maximum))
         if title != '':
             plt.title(title)
